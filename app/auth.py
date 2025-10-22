@@ -10,6 +10,8 @@ from .models import User, RefreshToken
 from .schemas import UserCreate, Token, LoginRequest, UserRead
 from typing import Optional
 from uuid import uuid4
+from .firebase import verify_id_token
+from fastapi import Body
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -120,18 +122,60 @@ def logout(refresh_token: Optional[str] = None, request: Request = None, session
 
 @router.get('/me', response_model=UserRead)
 def me(authorization: Optional[str] = None, session=Depends(get_session)):
-    # Expect header value 'Bearer <token>' passed by client as Authorization header
+    # Accept either our own bearer token or a Firebase ID token
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
     scheme, _, token = authorization.partition(' ')
     if scheme.lower() != 'bearer' or not token:
         raise HTTPException(status_code=401, detail="Invalid Authorization header")
+
+    # Try decode as our own JWT first
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         user_id = payload.get('sub')
+        user = session.get(User, user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        return UserRead(id=user.id, email=user.email, name=user.name)
     except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    user = session.get(User, user_id)
+        # Not our token; try Firebase token
+        try:
+            decoded = verify_id_token(token)
+        except Exception:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        # decoded contains uid and email
+        uid = decoded.get('uid') or decoded.get('sub')
+        email = decoded.get('email')
+        name = decoded.get('name') or decoded.get('displayName')
+        # Upsert user by email if exists, else create with firebase uid as id
+        user = None
+        if email:
+            user = session.exec(select(User).where(User.email == email)).first()
+        if not user:
+            # create user record
+            user = User(id=uid or str(uuid4()), email=email or f"{uid}@firebase.local", password_hash="", name=name)
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+        return UserRead(id=user.id, email=user.email, name=user.name)
+
+
+@router.post('/firebase_login', response_model=UserRead)
+def firebase_login(id_token: str = Body(...), session=Depends(get_session)):
+    # verify id_token and upsert user
+    try:
+        decoded = verify_id_token(id_token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
+    uid = decoded.get('uid') or decoded.get('sub')
+    email = decoded.get('email')
+    name = decoded.get('name') or decoded.get('displayName')
+    user = None
+    if email:
+        user = session.exec(select(User).where(User.email == email)).first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        user = User(id=uid or str(uuid4()), email=email or f"{uid}@firebase.local", password_hash="", name=name)
+        session.add(user)
+        session.commit()
+        session.refresh(user)
     return UserRead(id=user.id, email=user.email, name=user.name)

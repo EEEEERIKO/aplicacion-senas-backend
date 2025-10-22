@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from .db import init_db
 from .auth import router as auth_router
+from .firebase import init_firebase
 
 
 app = FastAPI(title="Aplicacion Senas Content API")
@@ -10,6 +11,11 @@ app = FastAPI(title="Aplicacion Senas Content API")
 @app.on_event('startup')
 def on_startup():
     init_db()
+    # initialize Firebase admin if credentials present
+    try:
+        init_firebase()
+    except Exception:
+        pass
 
 
 app.include_router(auth_router)
