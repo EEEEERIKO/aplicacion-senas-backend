@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from .db import init_db
 from .auth import router as auth_router
 from .firebase import init_firebase
+from .content import router as content_router
 
 
 app = FastAPI(title="Aplicacion Senas Content API")
@@ -19,21 +20,26 @@ def on_startup():
 
 
 app.include_router(auth_router)
+app.include_router(content_router)
 
 
 @app.get('/v1/locales')
 def list_locales():
-    return JSONResponse(content=[{"code":"pt_BR","name":"Português (BR)"}])
+    return JSONResponse(content=[{"code": "pt_BR", "name": "Português (BR)"}])
 
 
-@app.get('/v1/lessons')
-def list_lessons(locale: str):
-    # Placeholder: would read from DB
-    return JSONResponse(content=[{"id":1,"locale":locale,"title":"Saudações"}])
+@app.get('/healthz')
+def health():
+    # Basic health check — extend with DB/Redis checks if needed
+    return JSONResponse(content={"status": "ok"})
 
 
-@app.get('/v1/models')
-def list_models(locale: str):
-    # Placeholder metadata
-    return JSONResponse(content=[{"version":"1.0.0","url":"https://example.com/models/pt_BR/model_v1.tflite","checksum":"abc123","size":4200000}])
+@app.get('/readyz')
+def ready():
+    # Readiness probe — ensure DB (and other services) are reachable
+    try:
+        init_db()
+    except Exception:
+        return JSONResponse(status_code=500, content={"status": "error"})
+    return JSONResponse(content={"status": "ready"})
 

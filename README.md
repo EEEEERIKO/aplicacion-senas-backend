@@ -41,3 +41,14 @@ uvicorn app.main:app --reload --port 8000
 ```bash
 docker build -t aplicacion-senas-backend .
 ```
+
+Configuration
+-------------
+
+Copy `.env.example` to `.env` and update values before running in development. The app reads environment variables from a `.env` file (pydantic BaseSettings). Example variables:
+
+ - DATABASE_URL
+ - SECRET_KEY
+ - FIREBASE_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS
+ - S3_BUCKET / S3_ENDPOINT_URL (optional)
+
